@@ -445,6 +445,13 @@ IArchiveUpdateCallbackFile::ReportOperation
   UInt32 index
   UInt32 notifyOp (NUpdateNotifyOp)
 */
+#define INTERFACE_IArchiveUpdateCallbackArchiveProp(x) \
+    STDMETHOD(GetArchiveProperty)(PROPID propID, PROPVARIANT *value)  x; \
+
+ARCHIVE_INTERFACE(IArchiveUpdateCallbackArchiveProp, 0x84)
+{
+	INTERFACE_IArchiveUpdateCallbackArchiveProp(PURE);
+};
 
 #define INTERFACE_IArchiveUpdateCallbackFile(x) \
   STDMETHOD(GetStream2)(UInt32 index, ISequentialInStream **inStream, UInt32 notifyOp) x; \

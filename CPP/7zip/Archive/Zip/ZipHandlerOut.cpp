@@ -34,17 +34,17 @@ STDMETHODIMP CHandler::GetFileTimeType(UInt32 *timeType)
   return S_OK;
 }
 
-static bool IsSimpleAsciiString(const wchar_t *s)
-{
-  for (;;)
-  {
-    wchar_t c = *s++;
-    if (c == 0)
-      return true;
-    if (c < 0x20 || c > 0x7F)
-      return false;
-  }
-}
+//static bool IsSimpleAsciiString(const wchar_t *s)
+//{
+//  for (;;)
+//  {
+//    wchar_t c = *s++;
+//    if (c == 0)
+//      return true;
+//    if (c < 0x20 || c > 0x7F)
+//      return false;
+//  }
+//}
 
 
 static int FindZipMethod(const char *s, const char * const *names, unsigned num)
@@ -325,6 +325,41 @@ STDMETHODIMP CHandler::UpdateItems(ISequentialOutStream *outStream, UInt32 numIt
     updateItems.Add(ui);
   }
 
+  CMyComPtr<IArchiveUpdateCallbackArchiveProp> getArchiveProp;
+  {
+	  CMyComPtr<IArchiveUpdateCallback> udateCallBack2(callback);
+	  udateCallBack2.QueryInterface(IID_IArchiveUpdateCallbackArchiveProp, &getArchiveProp);
+  }
+  if(getArchiveProp){
+	  UINT codePage = _forceCodePage ? _specifiedCodePage : CP_OEMCP;
+
+	  NCOM::CPropVariant prop;
+	  RINOK(getArchiveProp->GetArchiveProperty(kpidComment, &prop));
+	  if (prop.vt == VT_EMPTY)
+	  {
+		  // ui.Comment.Free();
+	  }
+	  else if (prop.vt != VT_BSTR)
+		  return E_INVALIDARG;
+	  else
+	  {
+		  UString s = prop.bstrVal;
+		  AString a;
+		  if (ui.IsUtf8)
+			  ConvertUnicodeToUTF8(s, a);
+		  else
+		  {
+			  bool defaultCharWasUsed;
+			  a = UnicodeStringToMultiByte(s, codePage, '_', defaultCharWasUsed);
+		  }
+		  if (a.Len() >= (1 << 16))
+			  return E_INVALIDARG;
+		  //m_Archive.ArcInfo.Comment.Free();
+		  m_Archive.ArcInfo.Comment.CopyFrom((const Byte *)(const char *)a, a.Len());
+	  }
+  }
+
+
 
   CMyComPtr<ICryptoGetTextPassword2> getTextPassword;
   {
@@ -348,9 +383,9 @@ STDMETHODIMP CHandler::UpdateItems(ISequentialOutStream *outStream, UInt32 numIt
     {
       if (!m_ForceAesMode)
         options.IsAesMode = thereAreAesUpdates;
-
-      if (!IsSimpleAsciiString(password))
-        return E_INVALIDARG;
+	  //…Ë÷√÷–Œƒ
+      //if (!IsSimpleAsciiString(password))
+      //  return E_INVALIDARG;
       if (password)
         options.Password = UnicodeStringToMultiByte((LPCOLESTR)password, CP_OEMCP);
       if (options.IsAesMode)
