@@ -2,7 +2,7 @@
 2017-04-03 : Igor Pavlov : Public domain */
 
 #include "Precomp.h"
-
+#include "7zCrcOpt.h"
 #include "CpuArch.h"
 
 #ifndef MY_CPU_BE

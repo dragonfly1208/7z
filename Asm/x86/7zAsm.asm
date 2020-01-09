@@ -116,7 +116,7 @@ MY_POP_4_REGS macro
     pop     r5
     pop     r3
 endm
-
+end
 
 ifdef x64
 

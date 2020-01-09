@@ -130,6 +130,7 @@ static void PrintError(const char *message, const FString &name)
 {
   PrintError(message);
   Print(name);
+  system("pause");
 }
 
 
@@ -513,6 +514,11 @@ struct CDirItem
   FString FullPath;
   UInt32 Attrib;
 
+  //UInt32 index;
+  Int32 newData;
+  Int32 newProperties;
+  UInt32 ArcIndex;
+
   bool isDir() const { return (Attrib & FILE_ATTRIBUTE_DIRECTORY) != 0 ; }
 };
 
@@ -580,7 +586,7 @@ STDMETHODIMP CArchiveUpdateCallback::SetCompleted(const UInt64 * /* completeValu
   return S_OK;
 }
 
-STDMETHODIMP CArchiveUpdateCallback::GetUpdateItemInfo(UInt32 /* index */,
+STDMETHODIMP CArchiveUpdateCallback::GetUpdateItemInfo(UInt32 index ,
       Int32 *newData, Int32 *newProperties, UInt32 *indexInArchive)
 {
   if (newData)
@@ -724,11 +730,65 @@ STDMETHODIMP CArchiveUpdateCallback::CryptoGetTextPassword2(Int32 *passwordIsDef
 }
 
 
+
+class CArchiveDeleteCallback :public CArchiveUpdateCallback {
+public:
+	// IUpdateCallback2
+	STDMETHOD(GetUpdateItemInfo)(UInt32 index,
+		Int32 *newData, Int32 *newProperties, UInt32 *indexInArchive);
+	STDMETHOD(GetProperty)(UInt32 index, PROPID propID, PROPVARIANT *value);
+
+	void Init(CMyComPtr<IInArchive> archiveHandler, const CObjectVector<CDirItem> *dirItems)
+	{
+		_archiveHandler = archiveHandler;
+		DirItems = dirItems;
+		m_NeedBeClosed = false;
+		FailedFiles.Clear();
+		FailedCodes.Clear();
+	}
+
+
+private:
+	CMyComPtr<IInArchive> _archiveHandler;
+};
+
+STDMETHODIMP CArchiveDeleteCallback::GetUpdateItemInfo(UInt32 index,
+	Int32 *newData, Int32 *newProperties, UInt32 *indexInArchive)
+{
+	const CDirItem &dirItem = (*DirItems)[index];
+	if (newData)
+		*newData = BoolToInt(dirItem.newData);
+	if (newProperties)
+		*newProperties = BoolToInt(dirItem.newProperties);
+	if (indexInArchive)
+		*indexInArchive = dirItem.ArcIndex;// (UInt32)(Int32)-1;
+	return S_OK;
+}
+
+STDMETHODIMP CArchiveDeleteCallback::GetProperty(UInt32 index, PROPID propID, PROPVARIANT *value)
+{
+	NCOM::CPropVariant prop;
+
+	if (propID == kpidIsAnti)
+	{
+		prop = false;
+		prop.Detach(value);
+		return S_OK;
+	}
+	const CDirItem &dirItem = (*DirItems)[index];
+
+	_archiveHandler->GetProperty(dirItem.ArcIndex, propID, &prop);
+
+	prop.Detach(value);
+	return S_OK;
+}
+
+
 // Main function
 
 #define NT_CHECK_FAIL_ACTION PrintError("Unsupported Windows version"); return 1;
 
-int MY_CDECL main(int numArgs, const char *args[])
+int MY_CDECL main00(int numArgs, const char *args[])
 {
   NT_CHECK
 
@@ -773,6 +833,11 @@ int MY_CDECL main(int numArgs, const char *args[])
   }
 
   FString archiveName = CmdStringToFString(args[2]);
+  FString extDir = CmdStringToFString(".\\");
+
+  if (numArgs == 4) {
+	  extDir = CmdStringToFString(args[3]);
+  }
   
   if (c == 'a')
   {
@@ -804,6 +869,7 @@ int MY_CDECL main(int numArgs, const char *args[])
         di.MTime = fi.MTime;
         di.Name = fs2us(name);
         di.FullPath = name;
+		UINT64 ft = di.CTime.dwLowDateTime | ((UInt64)di.CTime.dwHighDateTime << 32);
         dirItems.Add(di);
       }
     }
@@ -874,17 +940,17 @@ int MY_CDECL main(int numArgs, const char *args[])
   }
   else
   {
-    if (numArgs != 3)
-    {
-      PrintError(kIncorrectCommand);
-      return 1;
-    }
+    //if (numArgs != 3)
+    //{
+    //  PrintError(kIncorrectCommand);
+    //  return 1;
+    //}
 
     bool listCommand;
     
-    if (c == 'l')
+    if (c == 'l' && numArgs == 3)
       listCommand = true;
-    else if (c == 'x')
+    else if (c == 'x'  && numArgs == 4)
       listCommand = false;
     else
     {
@@ -956,7 +1022,7 @@ int MY_CDECL main(int numArgs, const char *args[])
       // Extract command
       CArchiveExtractCallback *extractCallbackSpec = new CArchiveExtractCallback;
       CMyComPtr<IArchiveExtractCallback> extractCallback(extractCallbackSpec);
-      extractCallbackSpec->Init(archive, FString()); // second parameter is output folder path
+      extractCallbackSpec->Init(archive, extDir/*FString()*/); // second parameter is output folder path
       extractCallbackSpec->PasswordIsDefined = false;
       // extractCallbackSpec->PasswordIsDefined = true;
       // extractCallbackSpec->Password = "1";
@@ -988,6 +1054,276 @@ int MY_CDECL main(int numArgs, const char *args[])
       }
     }
   }
-
+  system("pause");
   return 0;
+}
+
+
+int MY_CDECL main2(int numArgs, const char *args[]) {
+	NDLL::CLibrary lib;
+	if (!lib.Load(NDLL::GetModuleDirPrefix() + FTEXT(kDllName)))
+	{
+		PrintError("Can not load 7-zip library");
+		system("pause");
+		return 1;
+	}
+	Func_CreateObject createObjectFunc = (Func_CreateObject)lib.GetProc("CreateObject");
+	if (!createObjectFunc)
+	{
+		PrintError("Can not get CreateObject");
+		system("pause");
+		return 1;
+	}
+	char pFileName[MAX_PATH];
+	int nPos = GetCurrentDirectory(MAX_PATH, pFileName);
+	FString archiveName = CmdStringToFString("cehsiArchive.7z");
+	//char* arr[] = {"Debug\\7z.pdb","Debug\\Alloc.obj" };
+	char* arr[] = { "Client7z.dsp","quazip.a.dll" };
+	CObjectVector<CDirItem> dirItems;
+	{
+		int i;
+		for (i = 0; i < sizeof(arr)/sizeof(char*); i++)
+		{
+			CDirItem di;
+			FString name = CmdStringToFString(arr[i]);
+
+			NFind::CFileInfo fi;
+			if (!fi.Find(name))
+			{
+				PrintError("Can't find file", name);
+				system("pause");
+				return 1;
+			}
+
+			di.Attrib = fi.Attrib;
+			di.Size = fi.Size;
+			di.CTime = fi.CTime;
+			di.ATime = fi.ATime;
+			di.MTime = fi.MTime;
+			di.Name = fs2us(name);
+			di.FullPath = name;
+			dirItems.Add(di);
+		}
+	}
+
+	COutFileStream *outFileStreamSpec = new COutFileStream;
+	CMyComPtr<IOutStream> outFileStream = outFileStreamSpec;
+	if (!outFileStreamSpec->Create(archiveName, false))
+	{
+		PrintError("can't create archive file");
+		system("pause");
+		return 1;
+	}
+
+	CMyComPtr<IOutArchive> outArchive;
+	if (createObjectFunc(&CLSID_Format, &IID_IOutArchive, (void **)&outArchive) != S_OK)
+	{
+		PrintError("Can not get class object");
+		system("pause");
+		return 1;
+	}
+
+	CArchiveUpdateCallback *updateCallbackSpec = new CArchiveUpdateCallback;
+	CMyComPtr<IArchiveUpdateCallback2> updateCallback(updateCallbackSpec);
+	updateCallbackSpec->Init(&dirItems);
+	// updateCallbackSpec->PasswordIsDefined = true;
+	// updateCallbackSpec->Password = L"1";
+
+	/*
+	{
+	const wchar_t *names[] =
+	{
+	L"s",
+	L"x"
+	};
+	const unsigned kNumProps = ARRAY_SIZE(names);
+	NCOM::CPropVariant values[kNumProps] =
+	{
+	false,    // solid mode OFF
+	(UInt32)9 // compression level = 9 - ultra
+	};
+	CMyComPtr<ISetProperties> setProperties;
+	outArchive->QueryInterface(IID_ISetProperties, (void **)&setProperties);
+	if (!setProperties)
+	{
+	PrintError("ISetProperties unsupported");
+	return 1;
+	}
+	RINOK(setProperties->SetProperties(names, values, kNumProps));
+	}
+	*/
+
+	HRESULT result = outArchive->UpdateItems(outFileStream, dirItems.Size(), updateCallback);
+
+	updateCallbackSpec->Finilize();
+
+	if (result != S_OK)
+	{
+		PrintError("Update Error");
+		system("pause");
+		return 1;
+	}
+
+	FOR_VECTOR(i, updateCallbackSpec->FailedFiles)
+	{
+		PrintNewLine();
+		PrintError("Error for file", updateCallbackSpec->FailedFiles[i]);
+	}
+
+	if (updateCallbackSpec->FailedFiles.Size() != 0) {
+		system("pause");
+		return 1;
+	}
+		
+
+	system("pause");
+	return 0;
+}
+
+
+
+int MY_CDECL main(int numArgs, const char *args[]) {
+	NDLL::CLibrary lib;
+	if (!lib.Load(NDLL::GetModuleDirPrefix() + FTEXT(kDllName)))
+	{
+		PrintError("Can not load 7-zip library");
+		return 1;
+	}
+	Func_CreateObject createObjectFunc = (Func_CreateObject)lib.GetProc("CreateObject");
+	if (!createObjectFunc)
+	{
+		PrintError("Can not get CreateObject");
+		return 1;
+	}
+	char pFileName[MAX_PATH];
+	int nPos = GetCurrentDirectory(MAX_PATH, pFileName);
+	FString archiveName = CmdStringToFString("cehsiArchive.7z");
+	//char* arr[] = {"Debug\\7z.pdb","Debug\\Alloc.obj" };
+	//char* arr[] = { "Client7z.dsp","Client7z.VC.db" };
+	CObjectVector<CDirItem> dirItems;
+
+
+	CMyComPtr<IInArchive> archive;
+	if (createObjectFunc(&CLSID_Format, &IID_IInArchive, (void **)&archive) != S_OK)
+	{
+		PrintError("Can not get class object");
+		return 1;
+	}
+
+	CInFileStream *fileSpec = new CInFileStream;
+	CMyComPtr<IInStream> file = fileSpec;
+
+	if (!fileSpec->Open(archiveName))
+	{
+		PrintError("Can not open archive file", archiveName);
+		return 1;
+	}
+
+	{
+		CArchiveOpenCallback *openCallbackSpec = new CArchiveOpenCallback;
+		CMyComPtr<IArchiveOpenCallback> openCallback(openCallbackSpec);
+		openCallbackSpec->PasswordIsDefined = false;
+		// openCallbackSpec->PasswordIsDefined = true;
+		// openCallbackSpec->Password = L"1";
+
+		const UInt64 scanSize = 1 << 23;
+		if (archive->Open(file, &scanSize, openCallback) != S_OK)
+		{
+			PrintError("Can not open file as archive", archiveName);
+			return 1;
+		}
+	}
+	archive->Close();
+	UInt32 numItems = 0;
+	archive->GetNumberOfItems(&numItems);
+
+
+	CDirItem di;
+	//di.index = 0;
+	di.newData = false;
+	di.newProperties = false;
+	di.ArcIndex = 0;
+	dirItems.Add(di);
+	//di.index = 1;
+	di.ArcIndex = 2;
+
+	dirItems.Add(di);
+
+
+	
+
+
+	FString outArchiveName = CmdStringToFString("outArchive.7z");
+
+
+	COutFileStream *outFileStreamSpec = new COutFileStream;
+	CMyComPtr<IOutStream> outFileStream = outFileStreamSpec;
+	if (!outFileStreamSpec->Create(outArchiveName, false))
+	{
+		PrintError("can't create archive file");
+		return 1;
+	}
+
+	CMyComPtr<IOutArchive> outArchive;
+	//if (createObjectFunc(&CLSID_Format, &IID_IOutArchive, (void **)&outArchive) != S_OK)
+	//{
+	//	PrintError("Can not get class object");
+	//	return 1;
+	//}
+	if (archive->QueryInterface( IID_IOutArchive, (void **)&outArchive) != S_OK)
+	{
+		PrintError("Can not get class object");
+		return 1;
+	}
+	CArchiveDeleteCallback *updateCallbackSpec = new CArchiveDeleteCallback;
+	CMyComPtr<IArchiveUpdateCallback2> updateCallback(updateCallbackSpec);
+	updateCallbackSpec->Init(archive,&dirItems);
+	// updateCallbackSpec->PasswordIsDefined = true;
+	// updateCallbackSpec->Password = L"1";
+
+	/*
+	{
+	const wchar_t *names[] =
+	{
+	L"s",
+	L"x"
+	};
+	const unsigned kNumProps = ARRAY_SIZE(names);
+	NCOM::CPropVariant values[kNumProps] =
+	{
+	false,    // solid mode OFF
+	(UInt32)9 // compression level = 9 - ultra
+	};
+	CMyComPtr<ISetProperties> setProperties;
+	outArchive->QueryInterface(IID_ISetProperties, (void **)&setProperties);
+	if (!setProperties)
+	{
+	PrintError("ISetProperties unsupported");
+	return 1;
+	}
+	RINOK(setProperties->SetProperties(names, values, kNumProps));
+	}
+	*/
+
+	HRESULT result = outArchive->UpdateItems(outFileStream, dirItems.Size(), updateCallback);
+
+	updateCallbackSpec->Finilize();
+
+	if (result != S_OK)
+	{
+		PrintError("Update Error");
+		return 1;
+	}
+
+	FOR_VECTOR(i, updateCallbackSpec->FailedFiles)
+	{
+		PrintNewLine();
+		PrintError("Error for file", updateCallbackSpec->FailedFiles[i]);
+	}
+
+	if (updateCallbackSpec->FailedFiles.Size() != 0)
+		return 1;
+
+	system("pause");
+	return 0;
 }

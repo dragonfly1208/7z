@@ -333,7 +333,7 @@ bool CCensorNode::AreThereIncludeItems() const
 
 bool CCensorNode::CheckPathCurrent(bool include, const UStringVector &pathParts, bool isFile) const
 {
-  const CObjectVector<CItem> &items = include ? IncludeItems : ExcludeItems;
+  const CObjectVector<CItem> &items = include ? IncludeItems : ExcludeItems;//压缩包外部数据文件，和内部数据文件
   FOR_VECTOR (i, items)
     if (items[i].CheckPath(pathParts, isFile))
       return true;
