@@ -447,7 +447,7 @@ STDMETHODIMP CHandler::UpdateItems(ISequentialOutStream *outStream, UInt32 numIt
   return Update(
       EXTERNAL_CODECS_VARS
       m_Items, updateItems, outStream,
-      m_Archive.IsOpen() ? &m_Archive : NULL, _removeSfxBlock,
+      &m_Archive, _removeSfxBlock,//mode for archive comment
       options, callback);
  
   COM_TRY_END2

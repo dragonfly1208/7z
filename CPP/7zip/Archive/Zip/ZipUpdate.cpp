@@ -1368,6 +1368,14 @@ HRESULT Update(
     const CCompressionMethodMode &compressionMethodMode,
     IArchiveUpdateCallback *updateCallback)
 {
+    ////mode for archive comment
+    CByteBuffer *pComment = NULL;
+    if (inArchive) {
+        pComment = &inArchive->ArcInfo.Comment;
+        if (!inArchive->IsOpen())
+            inArchive = NULL;
+    }
+
   if (inArchive)
   {
     if (!inArchive->CanUpdate())
@@ -1423,7 +1431,7 @@ HRESULT Update(
       outArchive, inArchive,
       inputItems, updateItems,
       compressionMethodMode, outSeqMode,
-      inArchive ? &inArchive->ArcInfo.Comment : NULL,
+	  pComment,
       updateCallback);
 }
 
